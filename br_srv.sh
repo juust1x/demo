@@ -26,8 +26,8 @@ echo "Настройка BR-SRV завершена."
 echo "=== Настройка BR-SRV: время, SSH ==="
 
 # --- Часовой пояс ---
-timedatectl set-timezone Asia/Novosibirsk
-timedatectl
+#timedatectl set-timezone Europe/Moscow
+#timedatectl
 
 # --- Создание пользователя sshuser ---
 groupadd -f wheel
