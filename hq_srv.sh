@@ -26,8 +26,8 @@ echo "Настройка HQ-SRV завершена."
 echo "=== Настройка HQ-SRV: время, SSH ==="
 
 # --- Часовой пояс (без установки tzdata – уже есть) ---
-timedatectl set-timezone Europe/Moscow
-timedatectl
+#timedatectl set-timezone Europe/Moscow
+#timedatectl
 
 # --- Создание пользователя sshuser ---
 groupadd -f wheel
