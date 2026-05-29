@@ -1,0 +1,2202 @@
+# 🛠️ Руководство по выполнению демонстрационного экзамена CCA-2026
+
+## Общие требования
+- **Время выполнения:** 2 часа 30 минут (1 модуль = 1 час, 2 модуль = 1.5 часа)
+- **Оборудование:** 10 серверных/Just OS машин (Alt JeOS, Alt Server), 2 клиентские машины (Alt Workstation), в моем случае все выполнялось на развернутом Proxmox внутри VMware Workstation.
+
+--- 
+
+# Модуль 1: Сетевое администрирование (1 час)
+
+## 📋 Задание 1: Произведите базовую настройку устройств. + Задание 4: Настройте коммутацию в сегменте HQ.
+
+**Задание 1**: 
+- Настройте имена устройств согласно топологии. Используйте полное доменное имя.
+- На всех устройствах необходимо сконфигурировать IPv4.
+- IP-адрес должен быть из приватного диапазона, в случае, если сеть локальная, согласно RFC1918.
+- Локальная сеть в сторону HQ-SRV(VLAN 100) должна вмещать не более 32 адресов.
+- Локальная сеть в сторону HQ-CLI(VLAN 200) должна вмещать не менее 16 адресов.
+- Локальная сеть для управления(VLAN 999) должна вмещать не более 8 адресов.
+- Локальная сеть в сторону BR-SRV должна вмещать не более 16 адресов.
+- Сведения об адресах занесите в таблицу 2, в качестве примера используйте Прил_3_О1_КОД 09.02.06-1-2026-М1.
+  
+**Задание 4**:
+- Трафик HQ-SRV должен принадлежать VLAN 100.
+- Трафик HQ-CLI должен принадлежать VLAN 200.
+- Предусмотреть возможность передачи трафика управления в VLAN 999.
+- Реализовать на HQ-RTR маршрутизацию трафика всех указанных VLAN использованием одного сетевого адаптера ВМ/физического порта.
+- Сведения о настройке коммутации внесите в отчёт.
+
+## Выполнение:
+### Настройка hostname.
+### ISP
+```bash
+hostnamectl set-hostname isp.au-team.irpo; exec bash
+```
+### HQ-RTR
+```bash
+hostnamectl set-hostname hq-rtr.au-team.irpo; exec bash
+```
+### HQ-SRV
+```bash
+hostnamectl set-hostname hq-srv.au-team.irpo; exec bash
+```
+### HQ-CLI
+```bash
+hostnamectl set-hostname hq-cli.au-team.irpo; exec bash
+```
+### BR-RTR
+```bash
+hostnamectl set-hostname br-rtr.au-team.irpo; exec bash
+```
+### BR-SRV
+```bash
+hostnamectl set-hostname br-srv.au-team.irpo; exec bash
+```
+> [!IMPORTANT]
+> ⚠️ 💡 **Важно**: Хоть в задании (если смотреть на отчет и таблицу) не указано дать название ISP, но его все равно нужно выдать.
+
+> [!TIP]
+>⚠️ **Примечание**: Команда hostnamectl set-hostname применяет изменения немедленно без перезагрузки. Флаг ; exec bash обновляет текущую сессию shell для отображения нового hostname в приглашении командной строки.
+
+### Конфигурация IPv4 адресов.
+
+### ISP
+```bash
+mkdir /etc/net/ifaces/enp7s2
+mkdir /etc/net/ifaces/enp7s3
+```
+```bash
+vim /etc/net/ifaces/enp7s2/options
+BOOTPROTO=static
+TYPE=eth
+vim /etc/net/ifaces/enp7s2/ipv4address
+172.16.1.1/28
+```
+```bash
+vim /etc/net/ifaces/enp7s3/options
+BOOTPROTO=static
+TYPE=eth
+vim /etc/net/ifaces/enp7s3/ipv4address
+172.16.2.1/28
+```
+```bash
+systemctl restart network
+```
+```bash
+ip -c -br a
+```
+**Должен быть такой вывод у команды:**
+```bash
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp7s1           UP             192.168.120.157/24 fe80::be24:11ff:fe74:fa7/64 
+enp7s2           UP             172.16.1.1/28 fe80::be24:11ff:fed1:a8dc/64 
+enp7s3           UP             172.16.2.1/28 fe80::be24:11ff:fed6:e399/64
+```
+> [!NOTE] 
+> ⚠️ 💡 Примечание: Для enp7s1 вывод будет отличаться из-за того что у всех этот интерфейс зависит от их собственной локальной сети, так как это интерфейс через который идет выход в интернет с помощью Bridge из Proxmox в VMware, в VMware обязательно нужно было указать Bridge в типе сетевого подключения, тип NAT или создание отдельной Network внутри VMware может вызывать нестабильность в работе!
+
+### HQ-RTR
+```bash
+mkdir /etc/net/ifaces/enp7s2
+mkdir /etc/net/ifaces/enp7s2.100
+mkdir /etc/net/ifaces/enp7s2.200
+mkdir /etc/net/ifaces/enp7s2.999
+```
+```bash
+vim /etc/net/ifaces/enp7s1/options
+BOOTPROTO=static
+TYPE=eth
+```
+```bash
+vim /etc/net/ifaces/enp7s1/ipv4address
+172.16.1.2/28
+```
+```bash
+vim /etc/net/ifaces/enp7s1/ipv4route
+default via 172.16.1.1
+```
+```bash
+vim /etc/net/ifaces/enp7s1/resolv.conf
+nameserver 9.9.9.9
+```
+```bash
+vim /etc/net/ifaces/enp7s2/options
+BOOTPROTO=none
+TYPE=eth
+```
+```bash
+vim /etc/net/ifaces/enp7s2.100/options
+BOOTPROTO=static
+TYPE=vlan
+VID=100
+HOST=enp7s2
+```
+```bash
+vim /etc/net/ifaces/enp7s2.100/ipv4address
+192.168.100.1/27
+```
+```bash
+vim /etc/net/ifaces/enp7s2.200/options
+BOOTPROTO=static
+TYPE=vlan
+VID=200
+HOST=enp7s2
+```
+```bash
+vim /etc/net/ifaces/enp7s2.200/ipv4address
+192.168.200.65/28
+```
+```bash
+vim /etc/net/ifaces/enp7s2.999/options
+BOOTPROTO=static
+TYPE=vlan
+VID=999
+HOST=enp7s2
+```
+```bash
+vim /etc/net/ifaces/enp7s2.999/ipv4address
+192.168.99.89/29
+```
+```bash
+systemctl restart network
+```
+```bash
+ip -c -br a
+```
+**Должен быть такой вывод у команды:**
+```bash
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp7s1           UP             172.16.1.2/28 fe80::be24:11ff:feda:daba/64 
+enp7s2           UP             fe80::be24:11ff:feae:ad50/64 
+enp7s2.100@enp7s2 UP             192.168.100.1/27 fe80::be24:11ff:feae:ad50/64 
+enp7s2.200@enp7s2 UP             192.168.200.65/28 fe80::be24:11ff:feae:ad50/64 
+enp7s2.999@enp7s2 UP             192.168.99.89/29 fe80::be24:11ff:feae:ad50/64
+```
+> [!CAUTION]
+> ⚠️ 💡 Важно!: Так как VLAN созданы через network внутри Proxmox, обязательно идем в веб панель Proxmox VE, заходим в раздел Server View > Datacenter > pve. В этом разделе в открытом списке выбираем 10103, 10104 машины (HQ-SRV,HQ-CLI), заходим в настройки во вкладку Hardware, меняем в графе Network Device (net6) VLAN tag, с того который там указан (если не указан, то включаем VLAN tag, и прописываем -> 100 для HQ-CLI, и 200 для HQ-SRV.) Перезапускать машины не нужно.
+
+### HQ-SRV
+```bash
+vim/etc/net/ifaces/enp0s3/options
+BOOTPROTO=static
+TYPE=eth
+```
+```bash
+vim /etc/net/ifaces/enp7s1/ipv4address
+192.168.100.2/27
+```
+```bash
+vim /etc/net/ifaces/enp7s1/ipv4route
+default via 192.168.100.1
+```
+```bash
+vim /etc/net/ifaces/enp7s1/resolv.conf
+nameserver 9.9.9.9
+```
+```bash
+systemctl restart network
+```
+```bash
+ip -c -br a
+```
+**Должен быть такой вывод у команды:**
+```bash
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp7s1           UP             192.168.100.2/27 fe80::be24:11ff:fef0:121/64 
+```
+
+### BR-RTR
+```bash
+mkdir /etc/net/ifaces/enp7s2/
+```
+```bash
+vim /etc/net/ifaces/enp7s2/options
+BOOTPROTO=static
+TYPE=eth
+```
+```bash
+vim /etc/net/ifaces/enp7s2/ipv4address
+192.168.3.1/28
+```
+```bash
+vim /etc/net/ifaces/enp7s1/options
+BOOTPROTO=static
+TYPE=eth
+```
+```bash
+vim /etc/net/ifaces/enp7s1/ipv4address
+172.16.2.2/28
+```
+```bash
+vim /etc/net/ifaces/enp7s1/ipv4route
+default via 172.16.2.1
+```
+```bash
+vim /etc/net/ifaces/enp7s1/resolv.conf
+nameserver 9.9.9.9
+```
+```bash
+systemctl restart network
+```
+```bash
+ip -c -br a
+```
+**Должен быть такой вывод у команды:**
+```bash
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp7s1           UP             172.16.2.2/28 fe80::be24:11ff:fe33:b6b2/64 
+enp7s2           UP             192.168.3.1/28 fe80::be24:11ff:fea1:62b4/64
+```
+
+### BR-SRV
+
+```bash
+vim/etc/net/ifaces/enp0s3/options
+```bash
+BOOTPROTO=static
+TYPE=eth
+```
+```bash
+vim /etc/net/ifaces/enp7s1/ipv4address
+192.168.3.2/28
+```
+```bash
+vim /etc/net/ifaces/enp7s1/ipv4route
+default via 192.168.3.1
+```
+```bash
+vim /etc/net/ifaces/enp7s1/resolv.conf
+nameserver 9.9.9.9
+```
+```bash
+systemctl restart network
+```
+```bash
+ip -c -br a
+```
+**Должен быть такой вывод у команды:**
+```bash
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp7s1           UP             192.168.3.2/28 fe80::be24:11ff:fed0:f63a/64 
+```
+> [!TIP]
+> ⚠️ 💡 Примечание!: HQ-CLI будет настроен позднее так как там будет использоваться DHCP настройка, на данном этапе теперь требуется настроить проброс портов чтобы пинг начал ходить между устройствами и появился доступ в интернет со всех машин, так же все отчеты будут приведны в отдельном [файле](./report_2026.odt), сейчас заполнять ничего не требуется, несмотря на задание.
+
+## 📋 Задание 2: Настройте доступ к сети Интернет, на маршрутизаторе ISP + Задание 8: Настройка динамической трансляции адресов.
+
+### Задание 2:
+- Настройте адресацию на интерфейсах. **(Уже выполнено [здесь](https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md#isp-1))**
+- Интерфейс, подключенный к магистральному провайдеру, получает адрес по DHCP **(Изначально так и есть, ничего делать не нужно)**
+- Настройте маршрут по умолчанию, если это необходимо. **(Уже выполнено [здесь](https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md#isp-1))**
+- Настройте интерфейс, в сторону HQ-RTR, интерфейс подключен к сети 172.16.1.0/28 **(Уже выполнено [здесь](https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md#isp-1))**
+- Настройте интерфейс, в сторону BR-RTR, интерфейс подключен к сети 172.16.2.0/28 **(Уже выполнено [здесь](https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md#isp-1))**
+- На ISP настройте динамическую сетевую трансляцию портов для доступа к сети Интернет HQ-RTR и BR-RTR.
+### Задание 8:
+- Настройте динамическую трансляцию адресов для обоих офисов.
+- Все устройства в офисах должны иметь доступ к сети Интернет
+
+### ISP
+```bash
+vim /etc/net/sysctl.conf
+net.ipv4.ip_forward = 1
+
+sysctl -p
+systemctl restart network
+```
+```bash
+apt-get update && apt-get install iptables -y
+
+iptables -t nat -A POSTROUTING -o enp0s3 -j MASQUERADE
+
+iptables-save > /etc/sysconfig/iptables
+systemctl enable iptables --now
+systemctl restart iptables
+```
+```bash
+systemctl status iptables
+iptables -t nat -L -n -v
+```
+Должны быть такие выводы у команд:
+```bash
+● iptables.service - IPv4 firewall with iptables
+     Loaded: loaded (/lib/systemd/system/iptables.service; enabled; vendor preset: disabled)
+     Active: active (exited) since Tue 2025-12-09 11:07:03 +07; 5s ago
+    Process: 8199 ExecStart=/etc/init.d/iptables start (code=exited, status=0/SUCCESS)
+   Main PID: 8199 (code=exited, status=0/SUCCESS)
+        CPU: 11ms
+
+Dec 09 11:07:03 isp.au-team.irpo systemd[1]: Starting IPv4 firewall with iptables...
+Dec 09 11:07:03 isp.au-team.irpo iptables[8213]: Applying iptables firewall rules: succeeded
+Dec 09 11:07:03 isp.au-team.irpo iptables[8199]: Applying iptables firewall rules: [ DONE ]
+Dec 09 11:07:03 isp.au-team.irpo systemd[1]: Finished IPv4 firewall with iptables.
+
+Chain PREROUTING (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain POSTROUTING (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 MASQUERADE  all  --  *      enp7s1  172.16.1.0/28        0.0.0.0/0           
+    0     0 MASQUERADE  all  --  *      enp7s1  172.16.2.0/28        0.0.0.0/0 
+```
+
+
+## 📋 Задание 11: Настройте часовой пояс на всех устройствах (за исключением виртуального коммутатора, в случае его использования) согласно месту проведения экзамена.
+
+### ISP, HQ-RTR, BR-RTR
+**На данных устройствах необходимо предварительно установить пакет tzdata для некоторых регионов которых нет по умолчанию на Alt JeOS, в 2026 году это ISP, HQ-RTR, BR-RTR. Если для экзамена использовались машины из скрипта PavelAF.**
+```bash
+apt-get update && apt-get install tzdata -y
+timedatectl set-timezone Asia/Novosibirsk
+timedatectl # Проверка 
+```
+### HQ-SRV, HQ-CLI, BR-SRV
+**На данных устройствах можно сразу установить часовой пояс, так как тут используется Alt Server и Alt Workstation, где уже есть пакет tzdata.**
+```bash
+timedatectl set-timezone Asia/Novosibirsk
+timedatectl # Проверка 
+```
+
+
+## 📋 Задание 3: Создание локальных учетных записей.
+
+### Задание 3:
+- Создайте локальные учетные записи на серверах HQ-SRV и BR-SRV:
+- Создайте пользователя sshuser.
+- Пароль пользователя sshuser с паролем P@ssw0rd.
+- Идентификатор пользователя 2026.
+- Пользователь sshuser должен иметь возможность запускать sudo без ввода пароля.
+- Создайте пользователя net_admin на маршрутизаторах HQ-RTR и BR-RTR.
+- Пароль пользователя net_admin с паролем P@ssw0rd.
+- При настройке ОС на базе Linux, запускать sudo без ввода пароля.
+- При настройке ОС отличных от Linux пользователь должен обладать максимальными привилегиями.
+
+### HQ-SRV и BR-SRV
+```bash
+useradd sshuser -u 2026 -U
+passwd sshuser # P@ssw0rd
+usermod -a -G wheel sshuser
+
+vim /etc/sudoers
+## Same thing without a password
+# WHEEL_USERS ALL=(ALL:ALL) NOPASSWD: ALL
+sshuser ALL=(ALL) NOPASSWD: ALL
+```
+Из под нового пользователя sshuser должен быть доступ без пароля:
+```bash
+exit
+sshuser # P@ssw0rd
+sudo cat /root/.bashrc
+```
+
+### HQ-RTR и BR-RTR
+```bash
+apt-get update && apt-get install sudo -y
+```
+```bash
+useradd net_admin
+passwd net_admin # P@ssw0rd
+usermod -a -G wheel net_admin
+
+vim /etc/sudoers
+## Same thing without a password
+# WHEEL_USERS ALL=(ALL:ALL) NOPASSWD: ALL
+net_admin ALL=(ALL) NOPASSWD: ALL
+```
+Из под нового пользователя net_admin должен быть доступ без пароля:
+```bash
+exit
+net_admin # P@ssw0rd
+sudo cat /root/.bashrc
+```
+
+## 📋 Задание 5: Настройте безопасный удаленный доступ на серверах HQ-SRV и BR-SRV.
+
+- Для подключения используйте порт 2026.
+- Разрешите подключения только пользователю sshuser.
+- Ограничьте количество попыток входа до двух.
+- Настройте баннер «Authorized access only».
+
+### BR-SRV
+```bash
+apt-get update && apt-get install openssh-server -y
+```
+```bash
+vim /etc/openssh/sshd_config
+Port 2026
+MaxAuthTries 2
+Banner /etc/openssh/sshd_banner
+AllowUsers sshuser
+```
+```bash
+vim /etc/openssh/sshd_banner
+«Authorized access only»
+```
+```bash
+systemctl enable sshd --now
+systemctl restart sshd
+
+systemctl status sshd
+```
+Должен быть такой вывод у команды:
+```bash
+● sshd.service - OpenSSH server daemon
+     Loaded: loaded (/lib/systemd/system/sshd.service; enabled; vendor preset: enabled)
+     Active: active (running) since Tue 2025-12-09 23:32:23 +07; 4s ago
+    Process: 3075 ExecStartPre=/usr/bin/ssh-keygen -A (code=exited, status=0/SUCCESS)
+    Process: 3077 ExecStartPre=/usr/sbin/sshd -t (code=exited, status=0/SUCCESS)
+   Main PID: 3078 (sshd)
+      Tasks: 1 (limit: 1131)
+     Memory: 748.0K
+        CPU: 6ms
+     CGroup: /system.slice/sshd.service
+             └─ 3078 /usr/sbin/sshd -D
+
+Dec 09 23:32:23 br-srv.au-team.irpo systemd[1]: Starting OpenSSH server daemon...
+Dec 09 23:32:23 br-srv.au-team.irpo sshd[3078]: Server listening on 0.0.0.0 port 2026.
+Dec 09 23:32:23 br-srv.au-team.irpo systemd[1]: Started OpenSSH server daemon.
+Dec 09 23:32:23 br-srv.au-team.irpo sshd[3078]: Server listening on :: port 2026.
+```
+```bash
+ssh sshuser@localhost -p 2026
+```
+Должен быть такой вывод у команды:
+```bash
+The authenticity of host '[localhost]:2026 ([127.0.0.1]:2026)' can't be established.
+ED25519 key fingerprint is SHA256:I5hoQPp6etwA1OX7wCOKfAFLhiJ8U848g4KUIWRnjyY.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added '[localhost]:2026' (ED25519) to the list of known hosts.
+«Authorized access only»
+
+sshuser@localhost's password: 
+Last login: Tue Dec  9 23:04:42 2025
+[sshuser@br-srv ~]$ 
+```
+
+### HQ-SRV
+```bash
+apt-get update && apt-get install openssh-server -y
+```
+```bash
+vim /etc/openssh/sshd_config
+Port 2026
+MaxAuthTries 2
+Banner /etc/openssh/sshd_banner
+AllowUsers sshuser
+```
+```bash
+vim /etc/openssh/sshd_banner
+«Authorized access only»
+```
+```bash
+systemctl enable sshd --now
+systemctl restart sshd
+
+systemctl status sshd
+```
+Должен быть такой вывод у команды:
+```bash
+● sshd.service - OpenSSH server daemon
+     Loaded: loaded (/lib/systemd/system/sshd.service; enabled; vendor preset: enabled)
+     Active: active (running) since Tue 2025-12-09 23:25:42 +07; 1s ago
+    Process: 3252 ExecStartPre=/usr/bin/ssh-keygen -A (code=exited, status=0/SUCCESS)
+    Process: 3254 ExecStartPre=/usr/sbin/sshd -t (code=exited, status=0/SUCCESS)
+   Main PID: 3255 (sshd)
+      Tasks: 1 (limit: 1131)
+     Memory: 744.0K
+        CPU: 6ms
+     CGroup: /system.slice/sshd.service
+             └─ 3255 /usr/sbin/sshd -D
+
+Dec 09 23:25:42 hq-srv.au-team.irpo systemd[1]: Starting OpenSSH server daemon...
+Dec 09 23:25:42 hq-srv.au-team.irpo systemd[1]: Started OpenSSH server daemon.
+Dec 09 23:25:42 hq-srv.au-team.irpo sshd[3255]: Server listening on 0.0.0.0 port 2026.
+Dec 09 23:25:42 hq-srv.au-team.irpo sshd[3255]: Server listening on :: port 2026.
+```
+```bash
+ssh sshuser@localhost -p 2026
+```
+Должен быть такой вывод у команды:
+```bash
+The authenticity of host '[localhost]:2026 ([127.0.0.1]:2026)' can't be established.
+ED25519 key fingerprint is SHA256:ozykrFl1QDnyY+S2wnNx+ZVlUyxY3ct74Bj4RVkmNnI.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added '[localhost]:2026' (ED25519) to the list of known hosts.
+«Authorized access only»
+
+sshuser@localhost's password: 
+Last login: Tue Dec  9 23:03:21 2025
+[sshuser@hq-srv ~]$ 
+```
+> [!WARNING]
+>⚠️ 💡 Примечание: В файле баннера /etc/openssh/sshd_banner, нужно поставить 1-2 отступа вниз чтобы баннер корректно отображался, в завимости от редактора vim/nano. Иначе баннер будет наезжать на поле авторизации или на строку приглашения.
+
+## 📋 Задание 6: Между офисами HQ и BR, на маршрутизаторах HQ-RTR и BR-RTR необходимо сконфигурировать ip туннель.
+
+- На выбор технологии GRE или IP in IP.
+- Сведения о туннеле занесите в отчёт. (Отчет будет приложен отдельным [файлом](./report_2026.odt))
+
+### HQ-RTR
+```bash
+mkdir /etc/net/ifaces/gre1
+```
+```bash
+vim /etc/net/ifaces/gre1/options
+TYPE=iptun
+TUNTYPE=gre
+TUNLOCAL=172.16.1.2
+TUNREMOTE=172.16.2.2
+TUNOPTIONS='ttl 64'
+```
+```bash
+vim /etc/net/ifaces/gre1/ipv4address
+10.10.0.1/30
+```
+```bash
+systemctl restart network
+ip -c -br a
+```
+Если все сделано верно получаем следующий вывод:
+```bash
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp7s1           UP             172.16.1.2/28 fe80::be24:11ff:feda:daba/64 
+enp7s2           UP             fe80::be24:11ff:feae:ad50/64 
+enp7s2.100@enp7s2 UP             192.168.100.1/27 fe80::be24:11ff:feae:ad50/64 
+enp7s2.200@enp7s2 UP             192.168.200.65/28 fe80::be24:11ff:feae:ad50/64 
+enp7s2.999@enp7s2 UP             192.168.99.89/29 fe80::be24:11ff:feae:ad50/64 
+gre0@NONE        DOWN           
+gretap0@NONE     DOWN           
+erspan0@NONE     DOWN           
+gre1@NONE        UNKNOWN        10.10.0.1/30 fe80::ac10:102/64 
+```
+
+### BR-RTR
+```bash
+mkdir /etc/net/ifaces/gre1
+```
+```bash
+vim /etc/net/ifaces/gre1/options
+TYPE=iptun
+TUNTYPE=gre
+TUNLOCAL=172.16.2.2
+TUNREMOTE=172.16.1.2
+TUNOPTIONS='ttl 64'
+```
+```bash
+vim /etc/net/ifaces/gre1/ipv4address
+10.10.0.2/30
+```
+```bash
+systemctl restart network
+ip -c -br a
+```
+Если все сделано верно получаем следующий вывод:
+```bash
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp7s1           UP             172.16.2.2/28 fe80::be24:11ff:fe33:b6b2/64 
+enp7s2           UP             192.168.3.1/28 fe80::be24:11ff:fea1:62b4/64 
+gre0@NONE        DOWN           
+gretap0@NONE     DOWN           
+erspan0@NONE     DOWN           
+gre1@NONE        UNKNOWN        10.10.0.2/30 fe80::ac10:202/64 
+```
+> [!NOTE]
+> **Проверка**: Проверяем работоспобность пингуя по туннелю с 10.10.0.1 на 10.10.0.2 и обратно.
+
+## 📋 Задание 7: Обеспечьте динамическую маршрутизацию: ресурсы одного офиса должны быть доступны из другого офиса. Для обеспечения динамической маршрутизации используйте link state протокол на ваше усмотрение.
+
+- Разрешите выбранный протокол только на интерфейсах в ip туннеле.
+- Маршрутизаторы должны делиться маршрутами только друг с другом.
+- Обеспечьте защиту выбранного протокола посредством парольной защиты.
+- Сведения о настройке и защите протокола занесите в отчёт. ([Отдельный файл](./report_2026.odt))
+
+### HQ-RTR
+```bash
+apt-get update && apt-get install frr -y
+```
+```bash
+vim /etc/frr/daemons
+ospfd=yes
+```
+```bash
+systemctl enable --now frr
+systemctl restart frr
+reboot
+```
+```bash
+vtysh
+show run
+```
+**Вывод:**
+```bash
+Current configuration:
+!
+frr version 9.0.2
+frr defaults traditional
+hostname hq-rtr.au-team.irpo
+log file /var/log/frr/frr.log
+no ipv6 forwarding
+!
+interface gre1
+ ip ospf network broadcast
+exit
+!
+end
+```
+> [!CAUTION]
+> Если все было настроено верно (интерфейс gre,ospfd и нигде не было ошибки) получаем такой вывод, самое главное у вас сама по себе должна появиться строка с интрефейсом, не нужно создавать его самим на FRR, нужно выполнить все в точности как у меня, если интерфейс gre1 внутри FRR создается сам, отсекается большая часть проблем.
+
+### BR-RTR
+```bash
+apt-get update && apt-get install frr -y
+```
+```bash
+vim /etc/frr/daemons
+ospfd=yes
+```
+```bash
+systemctl enable --now frr
+systemctl restart frr
+reboot
+```
+```bash
+vtysh
+show run
+```
+```bash
+Current configuration:
+!
+frr version 9.0.2
+frr defaults traditional
+hostname br-rtr.au-team.irpo
+log file /var/log/frr/frr.log
+no ipv6 forwarding
+!
+interface gre1
+ ip ospf network broadcast
+exit
+!
+end
+```
+### HQ-RTR
+```bash
+hq-rtr.au-team.irpo# conf t
+hq-rtr.au-team.irpo(config)# router ospf
+hq-rtr.au-team.irpo(config-router)# ospf router-id 172.16.1.1
+hq-rtr.au-team.irpo(config-router)# network 10.10.0.0/30 area 0
+hq-rtr.au-team.irpo(config-router)# network 192.168.100.0/27 area 0
+hq-rtr.au-team.irpo(config-router)# network 192.168.200.64/28 area 0
+hq-rtr.au-team.irpo(config-router)# network 192.168.99.88/29 area 0
+hq-rtr.au-team.irpo(config-router)# area 0 authentication
+hq-rtr.au-team.irpo(config-router)# exit
+hq-rtr.au-team.irpo(config)# interface gre1 
+hq-rtr.au-team.irpo(config-if)# ip ospf authentication-key P@ssw0rd
+hq-rtr.au-team.irpo(config-if)# ip ospf authentication             
+hq-rtr.au-team.irpo(config-if)# no ip ospf passive
+hq-rtr.au-team.irpo(config-if)# exit
+hq-rtr.au-team.irpo(config)# exit
+hq-rtr.au-team.irpo# wr
+```
+```bash
+show run
+```
+**Содержание конфигурации FRR после настройки:**
+```bash
+Current configuration:
+!
+frr version 9.0.2
+frr defaults traditional
+hostname hq-rtr.au-team.irpo
+log file /var/log/frr/frr.log
+no ipv6 forwarding
+!
+interface gre1
+ ip ospf authentication
+ ip ospf authentication-key P@ssw0rd
+ ip ospf network broadcast
+ no ip ospf passive
+exit
+!
+router ospf
+ ospf router-id 172.16.1.1
+ network 10.10.0.0/30 area 0
+ network 192.168.99.88/29 area 0
+ network 192.168.100.0/27 area 0
+ network 192.168.200.64/28 area 0
+ area 0 authentication
+exit
+!
+end
+```
+### BR-RTR
+```bash
+br-rtr.au-team.irpo# conf t
+br-rtr.au-team.irpo(config)# router ospf
+br-rtr.au-team.irpo(config-router)# ospf router-id 172.16.2.1
+br-rtr.au-team.irpo(config-router)# network 10.10.0.0/30 area 0
+br-rtr.au-team.irpo(config-router)# network 192.168.3.0/28 area 0
+br-rtr.au-team.irpo(config-router)# area 0 authentication 
+br-rtr.au-team.irpo(config-router)# exit
+br-rtr.au-team.irpo(config)# interface gre1
+br-rtr.au-team.irpo(config-if)# ip ospf authentication-key P@ssw0rd
+br-rtr.au-team.irpo(config-if)# ip ospf authentication             
+br-rtr.au-team.irpo(config-if)# no ip ospf passive
+br-rtr.au-team.irpo(config-if)# exit
+br-rtr.au-team.irpo(config)# exit
+br-rtr.au-team.irpo# wr
+```
+```bash
+show run
+```
+**Содержание конфигурации FRR после настройки:**
+```bash
+Current configuration:
+!
+frr version 9.0.2
+frr defaults traditional
+hostname br-rtr.au-team.irpo
+log file /var/log/frr/frr.log
+no ipv6 forwarding
+!
+interface gre1
+ ip ospf authentication
+ ip ospf authentication-key P@ssw0rd
+ ip ospf network broadcast
+ no ip ospf passive
+exit
+!
+router ospf
+ ospf router-id 172.16.2.1
+ network 10.10.0.0/30 area 0
+ network 192.168.3.0/28 area 0
+ area 0 authentication
+exit
+!
+end
+```
+Проверим работоспобность OSPF, для этого воспользуемся информацией о соседях полученных через OSPF, состояние должно быть Full/DR,Full/Backup.
+```bash
+hq-rtr.au-team.irpo# show ip ospf neighbor 
+Neighbor ID     Pri State           Up Time         Dead Time Address         Interface                        RXmtL RqstL DBsmL
+172.16.2.1        1 Full/Backup     1m01s             38.172s 10.10.0.2       gre1:10.10.0.1                       0     0     0
+
+```
+```bash
+br-rtr.au-team.irpo# show ip ospf neighbor
+Neighbor ID     Pri State           Up Time         Dead Time Address         Interface                        RXmtL RqstL DBsmL
+172.16.1.1        1 Full/DR         1m05s             34.321s 10.10.0.1       gre1:10.10.0.2                       0     0     0
+```
+> [!NOTE] 
+>⚠️ 💡 Примечание: После того как OSPF успешно работает, нужно проверить пинг, напимер с HQ-SRV попробовать пинговать BR-SRV и обратно, пинг должен успешно проходить между любыми устройствами, кроме ISP и пока не настроенного HQ-CLI.
+
+## 📋 Задание 9: Настройте протокол динамической конфигурации хостов для сети в сторону HQ-CLI.
+
+**Задание 9**:
+- Настройть нужную подсеть.
+- Для офиса HQ в качестве сервера DHCP выступает маршрутизатор HQ-RTR.
+- Клиентом является машина HQ-CLI.
+- Исключить из выдачи адрес маршрутизатора.
+- Адрес шлюза по умолчанию – адрес маршрутизатора HQ-RTR.
+- Адрес DNS-сервера для машины HQ-CLI – адрес сервера HQ-SRV.
+- DNS-суффикс для офисов HQ – au-team.irpo
+- Сведения о настройке протокола занесите в [отчёт](./report_2026.odt)
+  
+### HQ-RTR
+```bash
+apt-get update && apt-get install dhcp-server nano -y #Рекомендуется настраивать через nano для корретной табуляции внутри dhcpd.conf.
+nano /etc/dhcp/dhcpd.conf.sample #Взять шаблон конфига настроек можно отсюда или готовый ниже.
+```
+**Готовый конфиг**:
+```bash
+nano /etc/dhcp/dhcpd.conf
+subnet 192.168.200.64 netmask 255.255.255.240 {
+        option routers                  192.168.200.65;
+        option subnet-mask              255.255.255.240;
+
+        option domain-name              "au-team.irpo";
+        option domain-name-servers      192.168.100.2;
+
+        range dynamic-bootp 192.168.200.66 192.168.200.78;
+        default-lease-time 600;
+        max-lease-time 7200;
+}
+```
+```bash
+systemctl enable --now dhcpd
+systemctl restart dhcpd
+```
+> [!NOTE] 
+> С настройкой DHCP-сервера закончено, теперь получим IP если HQ-CLI ещё этого не сделал сам.
+
+### HQ-CLI
+```bash
+dhcpcd
+```
+Вывод у команды должен быть таким:
+```bash
+dhcpcd-9.4.0 starting
+DUID 00:04:a4:4f:22:43:ad:81:49:e1:b2:c7:06:fb:19:ec:1c:6a
+enp7s1: soliciting a DHCP lease
+enp7s1: offered 192.168.200.66 from 192.168.200.65
+enp7s1: leased 192.168.200.66 for 600 seconds
+enp7s1: adding route to 192.168.200.64/28
+enp7s1: adding default route via 192.168.200.65
+forked to background, child pid 2593
+```
+```bash
+ip -c -br a
+```
+**Вывод:**
+```bash
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+enp7s1           UP             192.168.200.66/28 fe80::be24:11ff:fec6:63e9/64 
+```
+
+### HQ-RTR
+
+**Проверка службы на возможные ошибки**:
+```bash
+systemctl status dhcpd
+```
+Вывод должен быть таким:
+```bash
+● dhcpd.service - DHCPv4 Server Daemon
+     Loaded: loaded (/lib/systemd/system/dhcpd.service; enabled; vendor preset: disabled)
+     Active: active (running) since Wed 2025-12-10 10:12:20 +07; 2min 8s ago
+       Docs: man:dhcpd(8)
+             man:dhcpd.conf(5)
+    Process: 3338 ExecStartPre=/etc/chroot.d/dhcpd.all (code=exited, status=0/SUCCESS)
+   Main PID: 3419 (dhcpd)
+      Tasks: 1 (limit: 529)
+     Memory: 4.3M
+        CPU: 40ms
+     CGroup: /system.slice/dhcpd.service
+             └─ 3419 /usr/sbin/dhcpd -4 -f --no-pid
+
+Dec 10 10:12:20 hq-rtr.au-team.irpo dhcpd[3419]: Wrote 0 leases to leases file.
+Dec 10 10:12:20 hq-rtr.au-team.irpo dhcpd[3419]: Server starting service.
+Dec 10 10:12:22 hq-rtr.au-team.irpo dhcpd[3419]: DHCPDISCOVER from bc:24:11:c6:63:e9 via enp7s2.200
+Dec 10 10:12:23 hq-rtr.au-team.irpo dhcpd[3419]: DHCPOFFER on 192.168.200.66 to bc:24:11:c6:63:e9 (hq-cli) via enp7s2.200
+Dec 10 10:12:23 hq-rtr.au-team.irpo dhcpd[3419]: DHCPREQUEST for 192.168.200.66 (192.168.200.65) from bc:24:11:c6:63:e9 (hq-cli) via enp7s2.200
+Dec 10 10:12:23 hq-rtr.au-team.irpo dhcpd[3419]: DHCPACK on 192.168.200.66 to bc:24:11:c6:63:e9 (hq-cli) via enp7s2.200
+```
+> [!NOTE] 
+>⚠️ 💡 **Примечание**: После этого пинг до интернета должен заработать, можно проверрить до 1.1.1.1, пинг по доменным именам пока что не работает, так как локальный DNS на HQ-SRV будет настроен ниже.
+
+> [!CAUTION]
+>⚠️ **Важно**: В случае перезапуска сетевой службы network на HQ-RTR, необходимо в ручную перезапускать каждый раз службу dhcpd (systemctl restart dhcpd), так как она будет сыпать ошибками и выключаться.
+
+## 📋 Задание 10: Настройте инфраструктуру разрешения доменных имён для офисов HQ и BR.
+
+**Задание 10**:
+- Основной DNS-сервер реализован на HQ-SRV
+- Сервер должен обеспечивать разрешение имён в сетевые адреса устройств и обратно в соответствии с таблицей 3
+- В качестве DNS сервера пересылки используйте любой общедоступный DNS сервер.
+
+**Таблица 3:**
+```bash
+Устройство Запись Тип
+HQ-RTR hq-rtr.au-team.irpo A,PTR
+BR-RTR br-rtr.au-team.irpo A
+HQ-SRV hq-srv.au-team.irpo A,PTR
+HQ-CLI hq-cli.au-team.irpo A,PTR
+BR-SRV br-srv.au-team.irpo A
+ISP (интерфейс направленный в сторону HQ-RTR) docker.au-team.irpo A
+ISP (интерфейс направленный в сторону BR-RTR) web.au-team.irpo A
+```
+
+### HQ-SRV
+```bash
+apt-get update && apt-get install bind nano -y
+```
+```bash
+nano /etc/bind/options.conf
+listen-on { any; };
+forward first;
+forwarders {9.9.9.9; };
+allow-query { any; };
+```
+```bash
+nano /etc/bind/local.conf
+// Add other zones here
+// Зона прямого просмотра (A-записи)
+zone "au-team.irpo" {
+    type master;
+    file "/etc/bind/db.au-team.irpo";
+};
+
+// Зона обратного просмотра для сети 192.168.100.0
+zone "100.168.192.in-addr.arpa" {
+    type master;
+    file "/etc/bind/db.192.168.100";
+};
+
+// Зона обратного просмотра для сети 192.168.200.64
+zone "64.200.168.192.in-addr.arpa" {
+    type master;
+    file "/etc/bind/db.192.168.200.64";
+};
+
+# Обязательно 2 пробела через Enter вниз при редактировании через nano, и 1 пробел вниз через Enter при редактирование через vim, иначе не будет работать.
+```
+```bash
+nano /etc/bind/db.au-team.irpo
+$TTL 86400
+@   IN  SOA hq-srv.au-team.irpo. root.au-team.irpo. (
+        2025121001 ; serial
+        3600       ; refresh
+        1800       ; retry
+        604800     ; expire
+        86400 )    ; minimum
+
+    IN  NS  hq-srv.au-team.irpo.
+
+hq-rtr   IN  A   192.168.100.1
+br-rtr   IN  A   192.168.3.1
+hq-srv   IN  A   192.168.100.2
+hq-cli   IN  A   192.168.200.66
+br-srv   IN  A   192.168.3.2
+
+docker  IN   A   172.16.1.1
+web     IN   A   172.16.2.1
+
+# Обязательно 2 пробела через Enter вниз при редактировании через nano, и 1 пробел вниз через Enter при редактирование через vim, иначе не будет работать.
+```
+```bash
+nano /etc/bind/db.192.168.100
+$TTL 86400
+@   IN  SOA hq-srv.au-team.irpo. root.au-team.irpo. (
+        2025121001
+        3600
+        1800
+        604800
+        86400 )
+
+    IN  NS  hq-srv.au-team.irpo.
+
+1   IN  PTR  hq-rtr.au-team.irpo.
+2   IN  PTR  hq-srv.au-team.irpo.
+
+# Обязательно 2 пробела через Enter вниз при редактировании через nano, и 1 пробел вниз через Enter при редактирование через vim, иначе не будет работать.
+```
+```bash
+nano /etc/bind/db.192.168.200.64
+$TTL 86400
+@   IN  SOA hq-srv.au-team.irpo. root.au-team.irpo. (
+        2025121001
+        3600
+        1800
+        604800
+        86400 )
+
+    IN  NS  hq-srv.au-team.irpo.
+
+1  IN  PTR  hq-cli.au-team.irpo.
+
+# Обязательно 2 пробела через Enter вниз при редактировании через nano, и 1 пробел вниз через Enter при редактирование через vim, иначе не будет работать.
+```
+
+```bash
+rm -rf /etc/net/ifaces/enp7s1/resolv.conf 
+systemctl restart network
+```
+```bash
+nano /etc/resolvconf.conf
+name_servers=127.0.0.1
+```
+```bash
+resolvconf -u
+systemctl restart network
+```
+**Выполним проверку**:
+```bash
+cat /etc/resolv.conf | grep nameserver
+```
+**Если все настроено верно получаем такой ответ**:
+```bash
+nameserver 127.0.0.1
+```
+**Запускаем службу DNS**: 
+```bash
+systemctl enable --now bind
+systemctl restart bind
+```
+```bash
+systemctl status bind
+```
+```bash
+● bind.service - Berkeley Internet Name Domain (DNS)
+     Loaded: loaded (/lib/systemd/system/bind.service; enabled; vendor preset: disabled)
+     Active: active (running) since Wed 2025-12-10 10:34:08 +07; 4s ago
+    Process: 16785 ExecStartPre=/etc/init.d/bind rndc_keygen (code=exited, status=0/SUCCESS)
+    Process: 16790 ExecStartPre=/usr/sbin/named-checkconf $CHROOT -z /etc/named.conf (code=exited, status=0/SUCCESS)
+    Process: 16791 ExecStart=/usr/sbin/named -u named $CHROOT $RETAIN_CAPS $EXTRAOPTIONS (code=exited, status=0/SUCCESS)
+      Tasks: 5 (limit: 1131)
+     Memory: 11.0M
+        CPU: 23ms
+     CGroup: /system.slice/bind.service
+             └─ 16792 /usr/sbin/named -u named
+
+Dec 10 10:34:08 hq-srv.au-team.irpo named[16792]: network unreachable resolving './NS/IN': 2001:500:9f::42#53
+Dec 10 10:34:08 hq-srv.au-team.irpo named[16792]: network unreachable resolving './NS/IN': 2001:dc3::35#53
+Dec 10 10:34:08 hq-srv.au-team.irpo named[16792]: network unreachable resolving './NS/IN': 2001:503:c27::2:30#53
+Dec 10 10:34:08 hq-srv.au-team.irpo named[16792]: network unreachable resolving './NS/IN': 2001:500:1::53#53
+Dec 10 10:34:08 hq-srv.au-team.irpo named[16792]: network unreachable resolving './NS/IN': 2001:500:2f::f#53
+Dec 10 10:34:08 hq-srv.au-team.irpo named[16792]: network unreachable resolving './NS/IN': 2001:500:2::c#53
+Dec 10 10:34:08 hq-srv.au-team.irpo named[16792]: network unreachable resolving './NS/IN': 2001:500:a8::e#53
+Dec 10 10:34:09 hq-srv.au-team.irpo named[16792]: managed-keys-zone: Key 20326 for zone . is now trusted (acceptance timer complete)
+Dec 10 10:34:09 hq-srv.au-team.irpo named[16792]: managed-keys-zone: Key 38696 for zone . is now trusted (acceptance timer complete)
+Dec 10 10:34:09 hq-srv.au-team.irpo named[16792]: resolver priming query complete
+```
+> [!IMPORTANT] 
+>⚠️ **Важно**: Проверяем с помощью пинга соседей по их доменным именам, пробуем пинговать br-srv.au-team.irpo, hq-cli.au-team.irpo, moodle.au-team.irpo, wiki.au-team.irpo и так далее. Проверяем выход в Интернет. Далее небходимо настроить этот локальный DNS сервер для всех машин, так как на hq-cli настроен DHCP где уже прописан этот сервер, то это будет нужно сделать только на HQ-RTR,BR-RTR,BR-SRV.
+
+### HQ-RTR
+```bash
+vim /etc/net/ifaces/enp7s1/resolv.conf
+nameserver 192.168.100.2 # Старую запись удаляем, оставляем только новую.
+```
+```bash
+systemctl restart network
+systemctl restart dhcpd
+```
+### BR-RTR
+```bash
+vim /etc/net/ifaces/enp7s1/resolv.conf
+nameserver 192.168.100.2 # Старую запись удаляем, оставляем только новую.
+```
+```bash
+systemctl restart network
+```
+### BR-SRV
+```bash
+vim /etc/net/ifaces/enp7s1/resolv.conf
+nameserver 192.168.100.2 # Старую запись удаляем, оставляем только новую.
+```
+```bash
+systemctl restart network
+```
+### HQ-RTR,HQ-CLI,HQ-SRV,BR-RTR,BR-SRV
+```bash
+ping hq-rtr.au-team.irpo
+ping hq-cli.au-team.irpo
+ping hq-srv.au-team.irpo
+ping br-rtr.au-team.irpo
+ping br-srv.au-team.irpo
+ping web.au-team.irpo
+ping docker.au-team.irpo
+```
+**Вывод (на каждой машине будет немного отличаться для тех узлов для которых по заданию нет PTR записи, главное чтобы был ответ):**
+```bash
+PING hq-rtr.au-team.irpo (192.168.100.1) 56(84) bytes of data.
+64 bytes from hq-rtr.au-team.irpo (192.168.100.1): icmp_seq=1 ttl=63 time=0.988 ms
+64 bytes from hq-rtr.au-team.irpo (192.168.100.1): icmp_seq=2 ttl=63 time=1.21 ms
+64 bytes from hq-rtr.au-team.irpo (192.168.100.1): icmp_seq=3 ttl=63 time=1.21 ms
+64 bytes from hq-rtr.au-team.irpo (192.168.100.1): icmp_seq=4 ttl=63 time=0.940 ms
+
+PING hq-srv.au-team.irpo (192.168.100.2) 56(84) bytes of data.
+64 bytes from hq-srv.au-team.irpo (192.168.100.2): icmp_seq=1 ttl=62 time=0.950 ms
+64 bytes from hq-srv.au-team.irpo (192.168.100.2): icmp_seq=2 ttl=62 time=1.32 ms
+64 bytes from hq-srv.au-team.irpo (192.168.100.2): icmp_seq=3 ttl=62 time=1.24 ms
+64 bytes from hq-srv.au-team.irpo (192.168.100.2): icmp_seq=4 ttl=62 time=1.31 ms
+
+PING hq-cli.au-team.irpo (192.168.200.66) 56(84) bytes of data.
+64 bytes from 192.168.200.66 (192.168.200.66): icmp_seq=1 ttl=62 time=1.08 ms
+64 bytes from 192.168.200.66 (192.168.200.66): icmp_seq=2 ttl=62 time=1.29 ms
+64 bytes from 192.168.200.66 (192.168.200.66): icmp_seq=3 ttl=62 time=1.24 ms
+64 bytes from 192.168.200.66 (192.168.200.66): icmp_seq=4 ttl=62 time=1.23 ms
+
+PING br-rtr.au-team.irpo (192.168.3.1) 56(84) bytes of data.
+64 bytes from 192.168.3.1 (192.168.3.1): icmp_seq=1 ttl=63 time=0.993 ms
+64 bytes from 192.168.3.1 (192.168.3.1): icmp_seq=2 ttl=63 time=1.22 ms
+64 bytes from 192.168.3.1 (192.168.3.1): icmp_seq=3 ttl=63 time=1.29 ms
+64 bytes from 192.168.3.1 (192.168.3.1): icmp_seq=4 ttl=63 time=1.11 ms
+
+PING br-srv.au-team.irpo (192.168.3.2) 56(84) bytes of data.
+64 bytes from 192.168.3.2 (192.168.3.2): icmp_seq=1 ttl=62 time=1.18 ms
+64 bytes from 192.168.3.2 (192.168.3.2): icmp_seq=2 ttl=62 time=1.29 ms
+64 bytes from 192.168.3.2 (192.168.3.2): icmp_seq=3 ttl=62 time=1.34 ms
+64 bytes from 192.168.3.2 (192.168.3.2): icmp_seq=4 ttl=62 time=1.35 ms
+
+PING docker.au-team.irpo (172.16.1.1) 56(84) bytes of data.
+64 bytes from 172.16.1.1 (172.16.1.1): icmp_seq=1 ttl=63 time=0.544 ms
+64 bytes from 172.16.1.1 (172.16.1.1): icmp_seq=2 ttl=63 time=0.737 ms
+64 bytes from 172.16.1.1 (172.16.1.1): icmp_seq=3 ttl=63 time=0.983 ms
+64 bytes from 172.16.1.1 (172.16.1.1): icmp_seq=4 ttl=63 time=0.790 ms
+
+PING web.au-team.irpo (172.16.2.1) 56(84) bytes of data.
+64 bytes from 172.16.2.1 (172.16.2.1): icmp_seq=1 ttl=63 time=0.551 ms
+64 bytes from 172.16.2.1 (172.16.2.1): icmp_seq=2 ttl=63 time=0.905 ms
+64 bytes from 172.16.2.1 (172.16.2.1): icmp_seq=3 ttl=63 time=0.905 ms
+64 bytes from 172.16.2.1 (172.16.2.1): icmp_seq=4 ttl=63 time=0.810 ms
+```
+> [!NOTE]
+> Проверямем пинг до Интернета, локальных доменных имен, все должно работать, со всех машин на все машины.
+
+> [!TIP]
+>После этих манипуляций, - Модуль 1: полностью выполнен, необходимо заполнить отчет как указано [здесь.](./report_2026.odt)
+
+
+# Модуль 2: Системное администрирование (1.5 часа)
+
+## 📋 Задание 1: Настройте контроллер домена Samba DC на сервере BR-SRV.
+
+**Задание 1:**
+- Имя домена au-team.irpo
+- Введите в созданный домен машину HQ-CLI
+- Создайте 5 пользователей для офиса HQ: имена пользователей формата hquser№ (например hquser1, hquser2 и т.д.)
+- Создайте группу hq, введите в группу созданных пользователей
+- Убедитесь, что пользователи группы hq имеют право аутентифицироваться на HQ-CLI
+- Пользователи группы hq должны иметь возможность повышать привилегии для выполнения ограниченного набора команд: cat, grep, id.
+- Запускать другие команды с повышенными привилегиями пользователи группы права не имеют.
+
+### BR-SRV
+Изначально на BR-SRV не прописан DNS сервер, нужно указать его для возможности загрузки пакетов и работы Samba DC.
+```bash
+vim /etc/resolvconf.conf
+name_servers=127.0.0.1
+name_servers=192.168.1.10
+resolvconf -u
+systemctl restart network
+```
+```bash
+apt-get update && apt-get install -y task-samba-dc alterator-fbi alterator-net-domain admx-* admc gpui
+```
+```bash
+vim /etc/sysconfig/network
+HOSTNAME=br-srv.au-team.irpo
+```
+```bash
+reboot
+```
+```bash
+systemctl enable --now ahttpd alteratord
+rm -rf /etc/samba/smb.conf /var/{lib.cache}/samba
+mkdir -p /var/lib/samba/sysvol
+```
+```bash
+samba-tool domain provision --realm=au-team.irpo --domain=au-team --adminpass='P@ssw0rd' --dns-backend=BIND9_DLZ --server-role=dc --use-rfc2307 
+```
+
+### HQ-CLI
+```bash
+apt-get update && apt-get install -y admx-* admc gpui sudo gpupdate
+```
+**Заходим через вкладку Console внутри Proxmox VE, чтобы получить доступ к графической части.**
+```
+login: user
+password: resu
+```
+**Открываем Firefox:** 
+- Переходим по адресу 192.168.3.10:8080
+- Данные для авторизации:
+```bash
+login: root
+password: toor
+```
+- Configuration > Expert mode > Apply
+- Web Interface
+- Меняем порт 8080 на 8081 > Apply > Restart http server
+- Переходим по адресу 192.168.3.10:8081
+- Вкладка Domain
+- Выбираем Active Directory Domain Controller
+- DNS Forwarders - 192.168.1.10
+- Domain - au-team.irpo
+- Password - P@ssw0rd
+- Apply
+- Запускаем и дожидаемся состояния - OK.
+
+### BR-SRV:
+**Перепускаем систему и проверяем**:
+```bash
+ping ya.ru
+ping br-srv.au-team.irpo
+ping hq-rtr.au-team.irpo
+```
+> [!TIP]
+> Если все работает - то ОК!
+
+### HQ-CLI:
+**Перепроверяем 192.168.3.10:8081**
+- Заходим в Domain
+> [!TIP]
+> Если сервер показывает статус OK, то идем дальше.
+
+**От рута выполняем:**
+```bash
+nmcli con modify DHCP-CLI \
+	ipv4.method auto \
+	ipv4.ignore-auto-dns yes \
+	ipv4.dns 192.168.3.10
+```
+```bash
+nmcli con down DHCP-CLI
+nmcli con up DHCP-CLI
+```
+**Открываем снова GUI и запускаем терминал, там прописываем**:
+```bash
+acc
+```
+- Пароль toor
+- Выбрать Аутентификация в разделе пользователи. (Если интерфейс на английском языке, то Auth в Networking)
+- Обязательно выибраем - Домен Active Directory
+- Прописать в домен - au-team.irpo
+- Прописать в рабочую группу - au-team
+- Имя компьютера - hq-cli
+- Выбираем обязательно SSID, а не Winbind.
+- Сохранить
+- Логин: Administrator, Пароль: P@ssw0rd
+- Включить групповые политики!
+- Напротив kerberos галочку НЕ ставить.
+- Применяем изменения.
+> [!TIP]
+> Если вход в домен произошел, то - ОК!
+
+### BR-SRV
+```bash
+samba-tool group add hq
+for i in $(seq 1 5); do samba-tool user add user$i.hq 'P@ssw0rd'; done
+for i in $(seq 1 5); do samba-tool group addmembers hq user$i.hq; done
+```
+Проверим наличие группы hq в Samba, и созданных пользователей:
+```bash
+samba-tool group list
+samba-tool group listmembers hq
+```
+```bash
+admx-msi-setup
+```
+### HQ-CLI
+
+**Перезапускаем и входим как Administrator**:
+- Пароль: P@ssw0rd
+
+**Открываем терминал**:
+```bash
+su -
+toor
+```
+```bash
+admx-msi-setup
+```
+```bash
+roleadd hq wheel
+```
+```bash
+rolelst
+```
+> [!IMPORTANT]
+> **Проверяем наличие hq:wheel**
+
+**Добавляем в sudoers данные строки:**
+```bash
+mcedit /etc/sudoers
+, %AU-TEAM\\hq
+Cmnd_Alias	SHELLCMD = /usr/bin/id, /bin/cat, /bin/grep
+SHELLCMD
+```
+Для понимания где находятся эти строки, и куда их нужно добавить - пример того как это реализовано у меня:
+```bash
+User_Alias WHEEL_USERS = %wheel, %AU-TEAM\\hq # Первая строка
+User_Alias XGRP_USERS = %xgrp
+# User_Alias SUDO_USERS = %sudo
+
+##
+## Runas alias specification
+##
+Cmnd_Alias SHELLCMD = /usr/bin/id, /bin/cat, /bin/grep # Вторая строка
+##
+## User privilege specification
+##
+# root ALL=(ALL:ALL) ALL
+
+## Uncomment to allow members of group wheel to execute any command
+WHEEL_USERS ALL=(ALL:ALL) SHELLCMD # Третья строка
+```
+```
+exit
+```
+**После того как вышли из под рута, выполняем kinit:**
+```bash
+kinit
+P@ssw0rd
+```
+```bash
+admc
+```
+**Настроим групповую политку:**
+- Объекты групповой политики
+- au-team.irpo > правой кнопкой мыши
+- Создать политику и связать с этим подразделением
+- Название: sudoers
+- Ставим галочку в графу "принудительно" напротив sudoers
+- Правой кнопкой мыши по sudoers > изменить
+- Компьютер
+- Административные шаблоны
+- Samba
+- Настройки Unix
+- Управление разрешениями Sudo
+- Состояние политики - Включено.
+- sudoers commands - Редактировать.
+- /usr/bin/id
+- /bin/cat
+- /bin/grep
+- Применяем и выходим из admc.
+```bash
+gpupdate -f
+```
+> [!IMPORTANT]
+> Прописываем 2 раза подряд чтобы команда точно применилась, иногда не срабатывает с 1 раза.
+
+**Заходим из под user5.hq:**
+- Пароль - P@ssw0rd
+
+```bash
+sudo id
+P@ssw0rd
+sudo cat /root/.bashrc
+sudo cat /root/.bashrc | grep root
+```
+> [!TIP]
+> Если все команды выполняются, значит все выполнено верно.
+
+## 📋 Задание 11: Удобным способом установите приложение Яндекс Браузер на HQ-CLI.
+
+**Задание 11:**
+- Установку браузера отметьте в отчёте.
+
+> [!IMPORTANT]
+> Готовый отчет можно взять - [тут.](./report_2026.odt)
+
+**Самый лучший способ: установить напрямую через пакетный менеджер.**
+```bash
+apt-get update && apt-get install yandex-browser -y
+```
+## 📋 Задание 2: Сконфигурируйте файловое хранилище на сервере HQ-SRV + Задание 3: Настройте сервер сетевой файловой системы (nfs) на HQ-SRV.
+
+**Задание 2:**
+
+- При помощи двух подключенных к серверу дополнительных дисков размером 1 Гб сконфигурируйте дисковый массив уровня 0
+- Имя устройства – md0, при необходимости конфигурация массива размещается в файле /etc/mdadm.conf
+- Создайте раздел, отформатируйте раздел, в качестве файловой системы используйте ext4
+- Обеспечьте автоматическое монтирование в папку /raid
+
+**Задание 3:**
+- В качестве папки общего доступа выберите /raid/nfs, доступ для чтения и записи исключительно для сети в сторону HQ-CLI
+- На HQ-CLI настройте автомонтирование в папку /mnt/nfs
+- Основные параметры сервера отметьте в отчёте
+  
+> [!IMPORTANT]
+> Готовый отчет можно взять - [тут.](./report_2026.odt)
+
+### HQ-SRV
+```bash
+lsblk
+mdadm -C /dev/md0 -l 0 -n 2 /dev/sd{b,c}
+lsblk
+mkfs.ext4 /dev/md0
+echo DEVICE partitions >> /etc/mdadm.conf
+mdadm --detail --scan >> /etc/mdadm.conf
+mkdir /raid
+```
+```bash
+mcedit /etc/fstab
+/dev/md0	/raid ext4 defaults	0	0
+```
+```bash
+mount -a
+df -h
+lsblk
+```
+```bash
+apt-get update && apt-get install -y nfs-{server,utils}
+mkdir /raid/nfs
+chmod 766 /raid/nfs
+```
+> [!WARNING]
+> Комментируем первую строку в файле /etc/exports, в самом низу прописываем, то что идет ниже.
+```
+mcedit /etc/exports
+/raid/nfs 192.168.2.0/28(rw,no_subtree_check,no_root_squash)
+```
+**Применяем изменения:**
+```bash
+exportfs -arv
+systemctl enable --now nfs-server.service
+systemctl restart nfs-server.service
+```
+### HQ-CLI
+```bash
+apt-get update && apt-get install -y nfs-{server,utils}
+mkdir /mnt/nfs
+chmod 777 /mnt/nfs
+```
+```bash
+mcedit /etc/fstab
+192.168.1.10:/raid/nfs	/mnt/nfs	nfs	defaults	0	0
+systemctl enable --now nfs-server.service
+systemctl restart nfs-server.service
+```
+**Монтируем файловую систему и делаем финальную проверку RAID:**
+```bash
+mount -a
+df -h
+```
+**Вывод команды:**
+```bash
+Файловая система       Размер Использовано  Дост Использовано% Cмонтировано в
+udevfs                   5,0M         100K  5,0M            2% /dev
+runfs                    1,3G         1,3M  1,3G            1% /run
+/dev/sda2                 15G         7,1G  6,5G           53% /
+tmpfs                    1,3G            0  1,3G            0% /dev/shm
+tmpfs                    1,3G         4,0K  1,3G            1% /tmp
+/dev/sda1                473M          55M  390M           13% /var/log
+192.168.1.10:/raid/nfs   2,0G            0  1,9G            0% /mnt/nfs
+tmpfs                    247M          56K  247M            1% /run/user/0
+tmpfs                    247M          80K  247M            1% /run/user/812001105
+```
+> [!IMPORTANT]
+> ⚠️ 💡 **Примечание**: Выполняем перезагрузку обоих машин и проверяем вывод через df -h на HQ-CLI, расшаренная файловая система с RAID - должна быть автоматически доступна.
+
+## 📋 Задание 4: Настройте службу сетевого времени на базе сервиса chrony на маршрутизаторе ISP.
+
+**Задание 4:**
+- Вышестоящий сервер ntp на маршрутизаторе ISP - на выбор участника.
+- Стратум сервера - 5
+- В качестве клиентов ntp настройте: HQ-SRV, HQ-CLI, BR-RTR, BR-SRV.
+
+### ISP
+```bash
+apt-get update && apt-get install -y chrony tzdata
+```
+```bash
+vim /etc/chrony.conf
+initstepslew 10 ntp0.ntp-servers.net
+pool 127.0.0.1 iburst prefer
+hwtimestamp *
+local stratum 5
+allow 0/0
+```
+**Запустим службу времени:**
+```bash
+systemctl restart chronyd
+systemctl enable --now chronyd
+timedatectl set-timezone Asia/Novosibirsk
+```
+**В качестве клиентов настроим: HQ-SRV, HQ-CLI, BR-RTR, BR-SRV, выполнить настройку нужно идентично нижней на всех 4-ех клиентах.**
+```bash
+apt-get update && apt-get install -y chrony tzdata
+vim /etc/chrony.conf
+pool 172.16.1.1 iburst prefer
+systemctl restart chronyd
+systemctl enable --now chronyd
+timedatectl set-timezone Asia/Novosibirsk
+```
+### HQ-RTR
+**Хоть на HQ-RTR и не настраивается chrony, но часовой пояс укажем и там тоже.**
+```bash
+timedatectl set-timezone Asia/Novosibirsk
+```
+> [!NOTE]
+> ⚠️ 💡 **Примечание**: На HQ-CLI уже будет сервер времени, нужно лишь добавить новый pool и перезагрузить chronyd.
+
+### ISP
+```bash
+systemctl restart chronyd
+```
+### HQ-SRV, HQ-CLI, BR-RTR, BR-SRV
+```bash
+chronyc sources
+```
+**Пример вывода:**
+```bash
+MS Name/IP address         Stratum Poll Reach LastRx Last sample               
+===============================================================================
+^* 172.16.1.1                    5   6    77    35   +859ns[  -23us] +/-  342us
+```
+> [!NOTE]
+> ⚠️ 💡 **Примечание**: На HQ-CLI будет 2 сервера в выводе, но приоритетный ISP.
+
+## 📋 Задание 5:  Сконфигурируйте ansible на сервере BR-SRV
+
+**Задание 5:**
+- Сформируйте файл инвентаря, в инвентарь должны входить HQ-SRV, HQ-CLI, HQ-RTR и BR-RTR
+- Рабочий каталог ansible должен располагаться в /etc/ansible
+- Все указанные машины должны без предупреждений и ошибок отвечать pong на команду ping в ansible посланную с BR-SRV
+
+### BR-SRV
+```bash
+apt-get update && apt-get install openssh-server ansible sshpass nano -y
+```
+```bash
+nano /etc/ansible/hosts
+[Alt]
+hq-rtr.au-team.irpo ansible_ssh_user=net_admin ansible_ssh_pass=P@ssw0rd
+hq-srv.au-team.irpo ansible_ssh_user=sshuser ansible_ssh_pass=P@ssw0rd
+hq-cli.au-team.irpo ansible_ssh_user=sysadmin ansible_ssh_pass=P@ssw0rd
+br-rtr.au-team.irpo ansible_ssh_user=net_admin ansible_ssh_pass=P@ssw0rd
+
+[Alt:vars]
+ansible_port=2026
+```
+```bash
+nano /etc/ansible/ansible.cfg
+[defaults]
+
+interpreter_python = /usr/bin/python3
+
+# some basic default values...
+# uncomment this to disable SSH key host checking
+host_key_checking = False
+```
+```bash
+ansible -m ping all
+```
+> [!TIP]
+> Если есть положительные ответы уже на этом моменте, то там где они положительные - настройку не производим.
+
+> [!NOTE]
+> В моем случае HQ-SRV уже настроен на порт 2026 с данными для авторизации что я указал выше.
+### HQ-SRV
+```bash
+apt-get update && apt-get install openssh-server -y
+```
+```bash
+vim /etc/openssh/sshd_config
+Port 2026
+MaxAuthTries 2
+AllowUsers sshuser
+```
+```bash
+systemctl enable --now sshd
+systemctl restart sshd
+```
+
+### HQ-RTR и BR-RTR
+```bash
+apt-get update && apt-get install openssh-server -y
+```
+```bash
+vim /etc/openssh/sshd_config
+Port 2026
+MaxAuthTries 2
+AllowUsers net_admin
+```
+```bash
+systemctl enable --now sshd
+systemctl restart sshd
+```
+
+### HQ-CLI 
+```bash
+apt-get update && apt-get install openssh-server -y
+```
+```bash
+useradd sysadmin
+passwd sysadmin
+P@ssw0rd
+usermod -a -G remote sysadmin
+```
+```bash
+vim /etc/openssh/sshd_config
+Port 2026
+MaxAuthTries 2
+AllowGroups wheel remote
+```
+```bash
+systemctl enable --now sshd
+systemctl restart sshd
+```
+
+### BR-SRV
+```bash
+ansible -m ping all
+```
+**Вывод команды**:
+```bash
+hq-srv.au-team.irpo | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+br-rtr.au-team.irpo | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+hq-rtr.au-team.irpo | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+hq-cli.au-team.irpo | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+```
+> [!TIP]
+> ⚠️ 💡 **Важно**: Проверяем чтобы вывод команды совпадал, если все совпдает, значит задание выполнено верно.
+
+## 📋 Задание 6:  Разверните веб приложение в docker на сервере BR-SRV.
+
+**Задание 6:**
+- Средствами docker должен создаваться стек контейнеров с веб приложением и базой данных
+- Используйте образы site_latest и mariadb_latest располагающиеся в директории docker в образе Additional.iso
+- Основной контейнер testapp должен называться tespapp
+- Контейнер с базой данных должен называться db
+- Импортируйте образы в docker, укажите в yaml файле параметры подключения к СУБД, имя БД - testdb, пользователь testс паролем P@ssw0rd, порт приложения 8080, при необходимости другие параметры
+- Приложение должно быть доступно для внешних подключений через порт 8080
+
+### BR-SRV
+```bash
+apt-get update && apt-get install docker-ce docker-compose -y
+systemctl enable --now docker.socket docker.service
+systemctl restart docker.socket docker.service
+```
+```bash
+mount /dev/sr0 /mnt
+```
+**Проверяем точку монтирования:**
+```bash
+lsblk
+```
+**Сверяем вывод:**
+```bash
+NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINTS
+sda      8:0    0    10G  0 disk 
+├─sda1   8:1    0   503M  0 part /var/log
+└─sda2   8:2    0   9.5G  0 part /
+sr0     11:0    1 929.7M  0 rom  /mnt
+```
+**Проверяем содержимое внутри образа:**
+```bash
+ls -la /mnt
+```
+```bash
+total 38
+dr-xr-xr-x  1 root root   256 Nov 23  2019 .
+drwxr-xr-x 24 root root  4096 Dec 11 01:08 ..
+dr-xr-xr-x  1 root root   332 Nov 23  2019 docker
+dr-xr-xr-x  1 root root   150 Nov 23  2019 playbook
+-r-xr-xr-x  1 root root 32527 Oct 13 04:22 Users.csv
+dr-xr-xr-x  1 root root   220 Nov 23  2019 web
+```
+**Копируем docker с образа на систему:**
+```bash
+cp -r /mnt/docker /root/docker
+```
+**Проверяем файлы:**
+```bash
+ls -la /root/docker
+```
+```bash
+total 951964
+dr-xr-xr-x 2 root root      4096 Dec 12 22:54 .
+drwx------ 8 root root      4096 Dec 12 22:54 ..
+-r-xr-xr-x 1 root root 333014016 Dec 12 22:54 mariadb_latest.tar
+-r-xr-xr-x 1 root root 282003968 Dec 12 22:54 postgresql_latest.tar
+-r-xr-xr-x 1 root root      2716 Dec 12 22:54 readme.txt
+-r-xr-xr-x 1 root root 359760896 Dec 12 22:54 site_latest.tar
+```
+**Загружаем в docker**
+```bash
+docker load -i /root/docker/site_latest.tar
+docker load -i /root/docker/mariadb_latest.tar
+```
+**Сверяем и проверяем TAG, это потребуется для image: в docker-compose.yaml**
+```bash
+docker image ls
+```
+**У меня получился такой вывод:**
+```bash
+REPOSITORY   TAG       IMAGE ID       CREATED        SIZE
+site         latest    015b4b821098   2 months ago   353MB
+mariadb      10.11     bc52d24721da   4 months ago   327MB
+```
+**Создаем директорию и файл конфигурации:**
+```bash
+mkdir testapp
+nano testapp/docker-compose.yaml
+```
+```bash
+services:
+  testapp:
+    image: site:latest
+    container_name: testapp # В задании указано tespapp, скорее всего опечатка составителей.
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "8080:8000"
+    environment:
+      DB_TYPE: maria
+      DB_HOST: db
+      DB_NAME: testdb
+      DB_PORT: 3306
+      DB_USER: testc
+      DB_PASS: P@ssw0rd   
+
+  db:
+    image: mariadb:10.11
+    container_name: db
+    restart: always
+    environment:
+      MARIADB_NAME: testdb
+      MARIADB_USER: testc
+      MARIADB_PASS: P@ssw0rd   
+      MARIADB_ROOT_PASSWORD: toor
+    volumes:
+      - /root/testapp/db_data:/var/lib/mysql
+```
+**Переходим в директорию если ещё не перешли, и поднимаем Docker:**
+```bash
+cd testapp/
+docker compose up -d
+docker ps
+```
+**Сверяем вывод:**
+```bash
+CONTAINER ID   IMAGE           COMMAND                  CREATED          STATUS                         PORTS      NAMES
+2f8db625ddfc   site:latest     "sh -c 'python3 -m a…"   22 seconds ago   Restarting (1) 2 seconds ago              testapp
+13af1bc1529e   mariadb:10.11   "docker-entrypoint.s…"   22 seconds ago   Up 21 seconds                  3306/tcp   db
+```
+**Либо может быть так:**
+```bash
+CONTAINER ID   IMAGE           COMMAND                  CREATED       STATUS             PORTS                                       NAMES
+264276eed58b   site:latest     "sh -c 'python3 -m a…"   27 seconds ago   Up 26 seconds   0.0.0.0:8080->8000/tcp, :::8080->8000/tcp   testapp
+8e79d22f6fa7   mariadb:10.11   "docker-entrypoint.s…"   27 seconds ago   Up 26 seconds   3306/tcp                                    db
+```
+> [!CAUTION]
+> На этом этапе заходим на HQ-CLI, и через Firefox пробуем зайти на 192.168.3.10:8080, если страница не открывается, то выполняем действия ниже, если открылась, задание выполнено.
+### BR-SRV
+```bash
+docker exec -it db /bin/bash
+mariadb -u root -p
+toor
+```
+```bash
+SHOW DATABASES;
+```
+**Причина кроется тут, нет нужной базы данных, пропишем ее и пользователя, а так же привилегии в ручную:**
+```bash
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| performance_schema |
+| sys                |
++--------------------+
+4 rows in set (0.001 sec)
+```
+**Выполняем в точности как у меня:**
+```bash
+CREATE DATABASE testdb;
+CREATE USER 'testc'@'%' IDENTIFIED BY 'P@ssw0rd';
+GRANT ALL PRIVILEGES ON testdb.* TO 'testc'@'%';
+FLUSH PRIVILEGES;
+```
+> [!NOTE] 
+> Пробуем снова с HQ-CLI зайти на 192.168.3.10:8080, если страница открывается, задание выполнено.
+
+> [!TIP]
+> После изменений сайт может начать открываться не сразу, иногда нужно до 1 минуты.
+ 
+## 📋 Задание 7:  Разверните веб приложение на сервере HQ-SRV.
+
+**Задание 7:**
+
+- Используйте веб-сервер apache
+- В качестве системы управления базами данных используйте mariadb
+- Файлы веб приложения и дамп базы данных находятся в директории web образа Additional.iso
+- Выполните импорт схемы и данных из файла dump.sql в базу данных webdb
+- Создайте пользователя web с паролем P@ssw0rd и предоставьте ему права доступа к этой базе данных
+- Файлы index.php и директорию images скопируйте в каталог веб сервера apache
+- В файле index.php укажите правильные учётные данные для подключения к БД
+- Запустите веб сервер и убедитесь в работоспособности приложения
+- Основные параметры отметьте в отчёте
+
+> [!IMPORTANT]
+> Готовый отчет можно взять - [тут.](./report_2026.odt)
+
+### HQ-SRV
+```bash
+apt-get update && apt-get install apache2 mariadb php8.2 apache2-mod_php8.2 php8.2-mysqli -y
+```
+```bash
+systemctl enable --now httpd2 mariadb
+systemctl restart httpd2 mariadb
+```
+```bash
+mkdir /mnt/add_cd
+mount /dev/sr0 /mnt/add_cd
+ls -la /mnt/add_cd
+```
+**Сверяем вывод:**
+```bash
+total 38
+dr-xr-xr-x 1 root root   256 Nov 23  2019 .
+drwxr-xr-x 3 root root  4096 Dec 13 12:54 ..
+dr-xr-xr-x 1 root root   332 Nov 23  2019 docker
+dr-xr-xr-x 1 root root   150 Nov 23  2019 playbook
+-r-xr-xr-x 1 root root 32527 Oct 13 04:22 Users.csv
+dr-xr-xr-x 1 root root   220 Nov 23  2019 web
+```
+```bash
+cp -r /mnt/add_cd/web /root/web
+ls -la /root/web
+```
+**Сверяем вывод:**
+```bash
+total 36
+dr-xr-xr-x 2 root root  4096 Dec 13 12:55 .
+drwx------ 9 root root  4096 Dec 13 12:55 ..
+-r-xr-xr-x 1 root root   415 Dec 13 12:55 dump.sql
+-r-xr-xr-x 1 root root  3964 Dec 13 12:55 index.php
+-r-xr-xr-x 1 root root 16780 Dec 13 12:55 logo.png
+```
+**Создаем базу данных webdb**
+```bash
+mysql -u root -e "CREATE DATABASE webdb;"
+```
+**Импортируем дамп**
+```bash
+mysql -u root webdb < /root/web/dump.sql
+```
+**Проверяем импорт**
+```bash
+mysql -u root -e "USE webdb; SHOW TABLES;"
+```
+**Сверяем вывод:**
+```bash
++-----------------+
+| Tables_in_webdb |
++-----------------+
+| employees       |
++-----------------+
+```
+**Создаем пользователя 'web' с паролем 'P@ssw0rd'**
+```bash
+mysql -u root -e "CREATE USER 'web'@'localhost' IDENTIFIED BY 'P@ssw0rd';"
+```
+**Даем права на базу webdb**
+```bash
+mysql -u root -e "GRANT ALL PRIVILEGES ON webdb.* TO 'web'@'localhost';"
+```
+**Применяем изменения**
+```bash
+mysql -u root -e "FLUSH PRIVILEGES;"
+```
+**Проверяем создание пользователя**
+```bash
+mysql -u root -e "SELECT user, host FROM mysql.user;"
+```
+**Сверяем вывод:**
+```bash
++-------------+---------------------+
+| User        | Host                |
++-------------+---------------------+
+| root        | 127.0.0.1           |
+| root        | ::1                 |
+| root        | hq-srv.au-team.irpo |
+| mariadb.sys | localhost           |
+| root        | localhost           |
+| web         | localhost           |
++-------------+---------------------+
+```
+```bash
+cp /root/web/index.php /var/www/html/
+cp /root/web/logo.png /var/www/html/
+```
+```bash
+chown -R apache2:webmaster /var/www/html/
+chmod 755 /var/www/html/
+```
+```bash
+ls -la /var/www/html/index.php
+ls -la /var/www/html/logo.png
+```
+**Сверяем вывод**
+```bash
+-r-xr-xr-x 1 apache2 webmaster 3964 Dec 14 15:25 /var/www/html/index.php
+-r-xr-xr-x 1 apache2 webmaster 16780 Dec 14 15:25 /var/www/html/logo.png
+```
+```bash
+vim /var/www/html/index.php
+```
+**Приводим к такому виду:**
+```bash
+$username = "web";
+$password = "P@ssw0rd";
+$dbname = "webdb";
+```
+```bash
+mv /var/www/html/index.html /var/www/html/index.html.default
+ls -la /var/www/html/
+```
+**Сверяем вывод:**
+```bash
+total 44
+drwxr-sr-x 3 apache2 webmaster  4096 Dec 14 15:29 .
+drwxr-xr-x 9 root    webmaster  4096 Dec 14 15:24 ..
+drwxrws--x 2 apache2 webmaster  4096 Oct 12  2010 addon-modules
+-rw-r--r-- 1 apache2 webmaster    45 Jul 28 15:35 index.html.default
+-r-xr-xr-x 1 apache2 webmaster  3968 Dec 14 15:28 index.php
+-r-xr-xr-x 1 apache2 webmaster  3964 Dec 14 15:25 index.php~
+-r-xr-xr-x 1 apache2 webmaster 16780 Dec 14 15:25 logo.png
+```
+```bash
+systemctl restart httpd2 mariadb
+```
+> [!Caution]
+> Если перезапуск httpd2 и mariadb не происходит и зависает, то перезагружаем полностью HQ-SRV. Останавливаем процесс через ctrl+z, и прописываем reboot.
+
+> [!NOTE]
+> Заходим на HQ-CLI, проверяем 192.168.1.10, должен открыться сайт, фио - DemoTest, отдел - DemoTest. Если эти поля уже заполены, значит все выполнено верно, должны корретно отображаться шрифты русского языка и логотип.
+
+> [!TIP]
+> Задание выполенено, веб-приложение работает на Apache + PHP + MariaDB, доступно по сети, выполняет CRUD-операции с базой данных сотрудников.
+
+## 📋 Задание 8: На маршрутизаторах сконфигурируйте статическую трансляцию портов.
+
+**Задание 8:**
+ 
+- Пробросьте порт 8080 в порт приложения testapp BR-SRV на маршрутизаторе BR-RTR, для обеспечения работы приложения testapp извне.
+- Пробросьте порт 8080 в порт веб приложения на HQ-SRV на маршрутизаторе HQ-RTR, для обеспечения работы веб приложения извне.
+- Пробросьте порт 2026 на маршрутизаторе HQ-RTR в порт 2026 сервера HQ-SRV, для подключения к серверу по протоколу ssh из внешних сетей.
+- Пробросьте порт 2026 на маршрутизаторе BR-RTR в порт 2026 сервера BR-SRV, для подключения к серверу по протоколу ssh из внешних сетей.
+
+### BR-RTR
+```bash
+apt-get update && apt-get install iptables -y
+```
+**Проброс порта 8080 для testapp (Docker приложение на BR-SRV).**
+```bash
+iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination 192.168.3.10:8080
+iptables -A FORWARD -p tcp -d 192.168.3.10 --dport 8080 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+```
+**Проброс порта 2026 для SSH.**
+```bash
+iptables -t nat -A PREROUTING -p tcp --dport 2026 -j DNAT --to-destination 192.168.3.10:2026
+iptables -A FORWARD -p tcp -d 192.168.3.10 --dport 2026 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+```
+**Сохранение правил и перезапуск.**
+```bash
+iptables-save > /etc/sysconfig/iptables
+systemctl restart iptables
+systemctl enable --now iptables
+```
+**Выполним проверку:**
+```bash
+iptables -t nat -L -n -v
+```
+**Сверяем вывод:**
+```bash
+Chain PREROUTING (policy ACCEPT 1 packets, 76 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:192.168.3.10:8080
+    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:2026 to:192.168.3.10:2026
+
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain POSTROUTING (policy ACCEPT 1 packets, 76 bytes)
+ pkts bytes target     prot opt in     out     source               destination  
+```
+
+### HQ-RTR
+```bash
+apt-get update && apt-get install iptables -y
+```
+**Проброс порта 8080 для веб-приложения Apache (перенаправляем на порт 80 HQ-SRV).**
+```bash
+iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination 192.168.1.10:80
+iptables -A FORWARD -p tcp -d 192.168.1.10 --dport 80 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+```
+**Проброс порта 2026 для SSH.**
+```bash
+iptables -t nat -A PREROUTING -p tcp --dport 2026 -j DNAT --to-destination 192.168.1.10:2026
+iptables -A FORWARD -p tcp -d 192.168.1.10 --dport 2026 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+```
+**Сохранение правил и перезапуск.**
+```bash
+iptables-save > /etc/sysconfig/iptables
+systemctl restart iptables
+systemctl enable --now iptables
+```
+**Выполним проверку:**
+```bash
+iptables -t nat -L -n -v
+```
+**Сверяем вывод:**
+```bash
+Chain PREROUTING (policy ACCEPT 2 packets, 116 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:192.168.1.10:80
+    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:2026 to:192.168.1.10:2026
+
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain POSTROUTING (policy ACCEPT 2 packets, 116 bytes)
+ pkts bytes target     prot opt in     out     source               destination  
+```
+> [!NOTE]
+> Если выводы совпадают, задание выполнено верно.
+
+## 📋 Задание 9: Настройте веб-сервер nginx как обратный прокси-сервер на ISP.
+
+**Задание 9**:
+
+- При обращении по доменному имени web.au-team.irpo у клиента должно открываться веб приложение на HQ-SRV.
+- При обращении по доменному имени docker.au-team.irpo клиента должно открываться веб приложение testapp.
+
+### ISP
+```bash
+apt-get update && apt-get install nginx nano -y
+```
+```bash
+nano /etc/nginx/sites-available.d/default.conf
+```
+**Приводим к такому:**
+```bash
+server {
+        listen 80;
+        server_name web.au-team.irpo;   
+
+        location / {
+                        proxy_set_header Host $host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $remote_addr;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                        proxy_pass http://172.16.1.10:8080;
+        }
+}
+server {
+        listen 80;
+        server_name docker.au-team.irpo;
+
+        location / {
+                        proxy_set_header Host $host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $remote_addr;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                        proxy_pass http://172.16.2.10:8080;
+        }
+}
+```
+```bash
+ln -s /etc/nginx/sites-available.d/default.conf /etc/nginx/sites-enabled.d/
+systemctl enable --now nginx
+systemctl restart nginx
+systemctl status nginx
+```
+### HQ-CLI
+```bash
+vim /etc/hosts
+```
+```bash
+172.16.1.1	web.au-team.irpo web
+172.16.2.1	docker.au-team.irpo docker
+```
+> [!NOTE]
+> Открываем Firefox, пробуем зайти на http://web.au-team.irpo и http://docker.au-team.irpo, если оба сайта открылись и корректно отображаются, задание выполнено.
+
+
+## 📋 Задание 10: На маршрутизаторе ISP настройте web-based аутентификацию
+
+**Задание 10**:
+
+- При обращении к сайту web.au-team.irpo клиенту должно быть предложено ввести аутентификационные данные.
+- В качестве логина для аутентификации выберите WEB с паролем P@ssw0rd.
+- Выберите файл /etc/nginx/.htpasswd в качестве хранилища учётных записей.
+- При успешной аутентификации клиент должен перейти на веб сайт.
+
+### ISP
+```bash
+apt-get update && apt-get install apache2-htpasswd -y
+```
+```bash
+htpasswd -c /etc/nginx/.htpasswd WEB
+P@ssw0rd
+```
+```bash
+nano /etc/nginx/sites-available.d/default.conf
+```
+**Добавляем 2 строки после proxy_pass в web.au-team.irpo, чтобы получилось такое содержимое файла:**
+```bash
+server {
+        listen 80;
+        server_name web.au-team.irpo;
+
+        location / {
+                        proxy_set_header Host $host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $remote_addr;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                        proxy_pass http://172.16.1.10:8080;
+                        auth_basic "Restricted";
+                        auth_basic_user_file /etc/nginx/.htpasswd;
+        }
+}
+server {
+        listen 80;
+        server_name docker.au-team.irpo;
+
+        location / {
+                        proxy_set_header Host $host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $remote_addr;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                        proxy_pass http://172.16.2.10:8080;
+        }
+}
+```
+```bash
+systemctl restart nginx
+systemctl status nginx
+```
+```bash
+● nginx.service - The nginx HTTP and reverse proxy server
+     Loaded: loaded (/lib/systemd/system/nginx.service; disabled; vendor preset: disabled)
+     Active: active (running) since Sun 2025-12-14 22:16:44 +07; 4min 31s ago
+    Process: 7780 ExecStartPre=/usr/sbin/nginx -t (code=exited, status=0/SUCCESS)
+   Main PID: 7782 (nginx)
+      Tasks: 11 (limit: 529)
+     Memory: 8.5M
+        CPU: 16ms
+     CGroup: /system.slice/nginx.service
+             ├─ 7782 "nginx: master process /usr/sbin/nginx -g daemon off;"
+             ├─ 7783 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+             ├─ 7784 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+             ├─ 7785 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+             ├─ 7786 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+             ├─ 7787 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+             ├─ 7788 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+             ├─ 7789 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+             ├─ 7790 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+             ├─ 7791 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+             └─ 7792 "nginx: worker process" "" "" "" "" "" "" "" "" ""
+
+Dec 14 22:16:44 isp.au-team.irpo systemd[1]: Starting The nginx HTTP and reverse proxy server...
+Dec 14 22:16:44 isp.au-team.irpo nginx[7780]: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+Dec 14 22:16:44 isp.au-team.irpo nginx[7780]: nginx: configuration file /etc/nginx/nginx.conf test is successful
+Dec 14 22:16:44 isp.au-team.irpo systemd[1]: Started The nginx HTTP and reverse proxy server.
+```
+> [!NOTE]
+> Открываем Firefox/Яндекс браузер на HQ-CLI и пробуем зайти на http://web.au-team.irpo, если сайт просит авторизоваться, то значит задание выполнено верно.
+
+> [!Tip]
+> Демонстрационнный экзамен (ССА) 2026 года выполнен. 
+
+> [!IMPORTANT]
+> Осталось заполнить отчет, готовый отчет можно взять - [здесь](./report_2026.odt).
