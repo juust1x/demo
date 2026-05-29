@@ -53,9 +53,9 @@ systemctl status iptables --no-pager
 iptables -t nat -L -n -v
 
 # --- Часовой пояс (tzdata) ---
-apt-get install -y tzdata
-timedatectl set-timezone Europe/Moscow
-timedatectl
+#apt-get install -y tzdata
+#timedatectl set-timezone Europe/Moscow
+#timedatectl
 
 echo "ISP: настройка завершена."
 
