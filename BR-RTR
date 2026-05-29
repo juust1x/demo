@@ -30,9 +30,6 @@ systemctl restart network
 
 echo "Настройка BR-RTR завершена."
 
-#!/bin/bash
-set -e
-
 echo "=== Настройка BR-RTR: интернет, время ==="
 
 # --- IP Forwarding ---
@@ -59,3 +56,31 @@ timedatectl set-timezone Europe/Moscow
 timedatectl
 
 echo "BR-RTR: настройка завершена."
+
+
+echo "=== Настройка GRE-туннеля на BR-RTR ==="
+
+mkdir -p /etc/net/ifaces/gre1
+
+cat > /etc/net/ifaces/gre1/options <<EOF
+TYPE=iptun
+TUNTYPE=gre
+TUNLOCAL=172.16.2.2
+TUNREMOTE=172.16.1.2
+TUNOPTIONS='ttl 64'
+EOF
+
+echo "10.10.0.2/30" > /etc/net/ifaces/gre1/ipv4address
+
+systemctl restart network
+
+echo "GRE-туннель на BR-RTR настроен."
+
+echo "=== Настройка DNS-клиента на BR-RTR ==="
+
+# Замена DNS-сервера на интерфейсе enp7s1
+echo "nameserver 192.168.100.2" > /etc/net/ifaces/enp7s1/resolv.conf
+
+systemctl restart network
+
+echo "DNS-клиент на BR-RTR обновлён."
