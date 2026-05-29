@@ -82,6 +82,13 @@ apt-get update && apt-get install -y bind nano
 # --- Конфигурация BIND ---
 # options.conf
 cat > /etc/bind/options.conf <<EOF
+options {
+	version "unknown";
+	directory "/etc/bind/zone";
+	dump-file "/var/run/named/named_dump.db";
+	statistics-file "/var/run/named/named.stats";
+	recursing-file "/var/run/named/named.recursing";
+	secroots-file "/var/run/named/named.secroots";
 listen-on { any; };
 forward first;
 forwarders { 9.9.9.9; };
