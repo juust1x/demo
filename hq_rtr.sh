@@ -85,11 +85,11 @@ systemctl status iptables --no-pager
 iptables -t nat -L -n -v
 
 # --- Часовой пояс (tzdata) ---
-apt-get install -y tzdata
-timedatectl set-timezone Europe/Moscow
-timedatectl
+#apt-get install -y tzdata
+#timedatectl set-timezone Europe/Moscow
+#timedatectl
 
-echo "HQ-RTR: настройка завершена."
+#echo "HQ-RTR: настройка завершена."
 
 
 echo "=== Настройка GRE-туннеля и DHCP на HQ-RTR ==="
