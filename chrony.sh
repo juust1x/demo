@@ -1,32 +1,37 @@
-bash#!/bin/bash
+bash
+#!/bin/bash
+set -e
 
-# 1. Установка пакетов chrony и apt-get (для управления пакетами в ALT Linux)
-echo "Установка Chrony..."
-apt-get update
-apt-get install -y chrony
+echo "=== Установка и настройка chrony (NTP-сервер) на ISP ==="
 
-# 2. Базовая настройка: добавление серверов точного времени (вы можете указать свои пулы)
-cat << 'EOF' > /etc/chrony.conf
-pool pool.ntp.org iburst
-driftfile /var/lib/chrony/chrony.drift
+# Установка chrony
+apt-get update && apt-get install -y chrony
+
+# Резервное копирование оригинального конфига (если ещё не сделано)
+[ -f /etc/chrony.conf ] && cp -n /etc/chrony.conf /etc/chrony.conf.bak
+
+# Конфигурация chrony
+cat > /etc/chrony.conf <<'EOF'
+# Внешние источники времени
+pool 2.alt.pool.ntp.org iburst
+pool 3.alt.pool.ntp.org iburst
+
+# Разрешить доступ клиентам из локальных сетей ISP
+allow 172.16.1.0/28
+allow 172.16.2.0/28
+
+# Локальные настройки
+driftfile /var/lib/chrony/drift
 makestep 1.0 3
 rtcsync
-allow 127.0.0.1
-bindcmdaddress 127.0.0.1
 keyfile /etc/chrony/chrony.keys
-commandkey 1
-generatecommandkey
-noclientlog
-logchange 0.5
+leapsectz right/UTC
 logdir /var/log/chrony
 EOF
 
-# 3. Добавление службы в автозагрузку и перезапуск демона
-echo "Запуск и включение Chrony..."
+# Включение и запуск службы
 systemctl enable --now chronyd
+systemctl restart chronyd
+systemctl status chronyd --no-pager
 
-# 4. Проверка текущего статуса и источников
-echo "Проверка статуса Chrony..."
-chronyc sources -v
-
-echo "Настройка завершена!"
+echo "Chrony на ISP настроен. Проверка: chronyc sources -v"
